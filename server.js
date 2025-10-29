@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
+const axios = require("axios"); 
 const {
   RawData,
   CalibratedData,
@@ -9,6 +10,7 @@ const {
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const ML_API_URL = "http://localhost:5001/predict";
 
 // Middleware
 app.use(cors());
@@ -34,26 +36,82 @@ const getWIBTime = () => {
 // API Routes
 
 // Raw Data Endpoints
+// --- INI ADALAH RUTE BARU UNTUK MENGGANTIKAN YANG LAMA ---
 app.post("/api/data/raw", async (req, res) => {
-  try {
-    const dataWithTimestamp = {
-      ...req.body,
-      timestamp: getWIBTime(),
-    };
-    const rawData = new RawData(dataWithTimestamp);
-    await rawData.save();
-    res.status(201).json({
-      success: true,
-      message: "Raw data saved successfully",
-      data: rawData,
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: "Error saving raw data",
-      error: error.message,
-    });
-  }
+  try {
+    // 1. Simpan Data Mentah (RawData)
+    const dataWithTimestamp = {
+      ...req.body,
+      timestamp: getWIBTime(),
+    };
+    const rawData = new RawData(dataWithTimestamp);
+    await rawData.save();
+
+    // --- INTEGRASI ML DIMULAI DI SINI ---
+    try {
+      console.log("Data mentah disimpan. Memulai proses kalibrasi ML...");
+      const rawVars = rawData.variables;
+
+      // 2. Siapkan data NPKpH untuk dikirim ke API Python
+      const dataForML = {
+        pH: rawVars.pH,
+        N: rawVars.N,
+        P: rawVars.P,
+        K: rawVars.K
+      };
+
+      // 3. Panggil API Python (ML Service) menggunakan axios
+      const mlResponse = await axios.post(ML_API_URL, dataForML, {
+        timeout: 5000 // Timeout 5 detik agar tidak menggantung
+      });
+
+      const calibratedValues = mlResponse.data;
+      // Hasil yang diharapkan: { pH_calibrated, N_calibrated, P_calibrated, K_calibrated }
+      console.log("Hasil kalibrasi ML diterima:", calibratedValues);
+
+      // 4. Buat dan simpan data terkalibrasi (CalibratedData)
+      const calibratedData = new CalibratedData({
+        timestamp: rawData.timestamp, // Gunakan timestamp yang SAMA dengan data mentah
+        variables: {
+          // Ambil nilai terkalibrasi dari ML
+          pH: calibratedValues.pH_calibrated,
+          N: calibratedValues.N_calibrated,
+          P: calibratedValues.P_calibrated,
+          K: calibratedValues.K_calibrated,
+
+          // Ambil nilai sisa (non-NPKpH) dari data mentah
+          suhu: rawVars.suhu,
+          kelembaban: rawVars.kelembaban,
+          EC: rawVars.EC
+        }
+      });
+
+      await calibratedData.save();
+      console.log("Data terkalibrasi berhasil disimpan ke database.");
+
+    } catch (mlError) {
+      // Jika ML gagal (misal API Python mati), JANGAN hentikan proses.
+      // Data mentah sudah aman tersimpan. Cukup catat error di log server.
+      console.error(`PERINGATAN: Gagal melakukan kalibrasi ML: ${mlError.message}`);
+    }
+    // --- INTEGRASI ML SELESAI ---
+
+    // 5. Kembalikan respon sukses (data mentah) ke ESP32
+    res.status(201).json({
+      success: true,
+      message: "Raw data saved successfully (calibration triggered)",
+      data: rawData,
+    });
+
+  } catch (error) {
+    // Error ini terjadi jika penyimpanan data mentah (langkah 1) gagal
+    console.error("Error fatal saat menyimpan data mentah:", error.message);
+    res.status(400).json({
+      success: false,
+      message: "Error saving raw data",
+      error: error.message,
+    });
+  }
 });
 
 app.get("/api/data/raw", async (req, res) => {
