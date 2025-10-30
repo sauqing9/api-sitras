@@ -62,7 +62,7 @@ app.post("/api/data/raw", async (req, res) => {
 
       // 3. Panggil API Python (ML Service) menggunakan axios
       const mlResponse = await axios.post(ML_API_URL, dataForML, {
-        timeout: 5000 // Timeout 5 detik agar tidak menggantung
+        timeout: 20000 // Timeout 5 detik agar tidak menggantung
       });
 
       const calibratedValues = mlResponse.data;
