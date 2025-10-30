@@ -10,7 +10,7 @@ const {
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const ML_API_URL = "https://sauqing.pythonanywhere.com/predict";
+const ML_API_URL = "http://sauqing.pythonanywhere.com/predict";
 
 // Middleware
 app.use(cors());
