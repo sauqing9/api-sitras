@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import os # <-- TAMBAHKAN INI
 
 print("Memulai ML API Service...")
 
@@ -14,6 +15,7 @@ CORS(app)
 # Muat model dan kolom fitur dari file
 model_filename = 'kalibrasi_npkph_model.joblib'
 try:
+    # Pastikan file .joblib ada di folder yang sama saat mendeploy
     model_data = joblib.load(model_filename)
     model = model_data['model']
     model_feature_columns = model_data['feature_columns']
@@ -22,7 +24,11 @@ try:
 except FileNotFoundError:
     print(f"Error: File model '{model_filename}' tidak ditemukan.")
     print("Pastikan Anda sudah menjalankan 'latih_model.py' terlebih dahulu.")
-    exit()
+    model = None # <-- Jangan exit, biarkan server berjalan untuk memberi error
+except KeyError:
+    print(f"Error: Format file '{model_filename}' salah.")
+    print("Pastikan file berisi dictionary {'model': ..., 'feature_columns': ...}")
+    model = None
 
 def engineer_features(input_data):
     """
@@ -38,13 +44,20 @@ def engineer_features(input_data):
     X_engineered['K_kali_pH'] = X_engineered['Potassium_deviasi'] * X_engineered['pH_deviasi']
     return X_engineered
 
+# Ini adalah "Health Check" yang diminta Render untuk memastikan server hidup
+@app.route('/')
+def health_check():
+    return jsonify({"status": "ML API Service is Online"}), 200
+
 @app.route('/predict', methods=['POST'])
 def predict():
+    if model is None:
+        return jsonify({'error': 'Model ML tidak dimuat, periksa log server.'}), 500
+
     try:
         # 1. Ambil data JSON dari request (dari server Node.js Anda)
         data = request.json
         
-        # Contoh input JSON: { "pH": 7.81, "N": 105.02, "P": 52.51, "K": 26.25 }
         input_df = pd.DataFrame({
             'pH_deviasi': [data['pH']],
             'Nitrogen_deviasi': [data['N']],
@@ -75,8 +88,13 @@ def predict():
         print(f"Error saat prediksi: {e}")
         return jsonify({'error': str(e)}), 400
 
+# --- MODIFIKASI BAGIAN INI UNTUK PRODUKSI ---
 if __name__ == '__main__':
-    # Jalankan API di port 5001 (atau port lain yang tidak terpakai)
-    # Server Node.js Anda (di port 3001) akan memanggil alamat ini.
-    print("ML API Service berjalan di http://localhost:5001")
-    app.run(port=5001, debug=True)
+    # Ambil Port dari Environment Variable yang diberikan Render
+    # Default ke 5001 jika dijalankan di lokal
+    port = int(os.environ.get('PORT', 5001))
+    
+    # Jalankan server agar bisa diakses dari luar (bukan hanya localhost)
+    print(f"ML API Service akan berjalan di port {port}")
+    # 'debug=True' akan otomatis mati di produksi jika tidak di-set secara eksplisit
+    app.run(host='0.0.0.0', port=port)
