@@ -10,7 +10,9 @@ const {
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const ML_API_URL = "http://sauqing.pythonanywhere.com/predict";
+
+// Pastikan ini adalah HTTP, bukan HTTPS, untuk paket gratis PythonAnywhere
+const ML_API_URL = "http://sauqing.pythonanywhere.com/predict"; 
 
 // Middleware
 app.use(cors());
@@ -35,17 +37,20 @@ const getWIBTime = () => {
 
 // API Routes
 
-// Raw Data Endpoints
-// --- INI ADALAH RUTE BARU UNTUK MENGGANTIKAN YANG LAMA ---
+// --- RUTE RAW DATA DENGAN DEBUGGING ---
 app.post("/api/data/raw", async (req, res) => {
-  try {
-    // 1. Simpan Data Mentah (RawData)
-    const dataWithTimestamp = {
-      ...req.body,
-      timestamp: getWIBTime(),
-    };
-    const rawData = new RawData(dataWithTimestamp);
-    await rawData.save();
+  
+  // Variabel untuk menyimpan pesan status ML
+  let mlStatusMessage = "Raw data saved (ML calibration skipped or not configured)"; 
+
+  try {
+    // 1. Simpan Data Mentah (RawData)
+    const dataWithTimestamp = {
+      ...req.body,
+      timestamp: getWIBTime(),
+    };
+    const rawData = new RawData(dataWithTimestamp);
+    await rawData.save();
 
     // --- INTEGRASI ML DIMULAI DI SINI ---
     try {
@@ -62,11 +67,16 @@ app.post("/api/data/raw", async (req, res) => {
 
       // 3. Panggil API Python (ML Service) menggunakan axios
       const mlResponse = await axios.post(ML_API_URL, dataForML, {
-        timeout: 20000 // Timeout 5 detik agar tidak menggantung
+        timeout: 20000 // Timeout 20 detik
       });
 
       const calibratedValues = mlResponse.data;
-      // Hasil yang diharapkan: { pH_calibrated, N_calibrated, P_calibrated, K_calibrated }
+      
+      // Cek jika API Python mengembalikan error
+      if (calibratedValues.error) {
+          throw new Error(`Python API Error: ${calibratedValues.error}`);
+      }
+      
       console.log("Hasil kalibrasi ML diterima:", calibratedValues);
 
       // 4. Buat dan simpan data terkalibrasi (CalibratedData)
@@ -88,30 +98,34 @@ app.post("/api/data/raw", async (req, res) => {
 
       await calibratedData.save();
       console.log("Data terkalibrasi berhasil disimpan ke database.");
+      
+      // Update pesan status jika ML sukses
+      mlStatusMessage = "SUCCESS: Raw data and Calibrated data saved!";
 
     } catch (mlError) {
-      // Jika ML gagal (misal API Python mati), JANGAN hentikan proses.
-      // Data mentah sudah aman tersimpan. Cukup catat error di log server.
+      // Jika ML gagal, catat error dan simpan pesannya
       console.error(`PERINGATAN: Gagal melakukan kalibrasi ML: ${mlError.message}`);
+      // Simpan pesan error untuk dikirim kembali di response
+      mlStatusMessage = `ML_DEBUG_ERROR: ${mlError.message}`;
     }
     // --- INTEGRASI ML SELESAI ---
 
-    // 5. Kembalikan respon sukses (data mentah) ke ESP32
-    res.status(201).json({
-      success: true,
-      message: "Raw data saved successfully (calibration triggered)",
-      data: rawData,
-    });
+    // 5. Kembalikan respon sukses (data mentah) ke ESP32
+    res.status(201).json({
+      success: true,
+      message: mlStatusMessage, // Kirim pesan status/error
+      data: rawData,
+    });
 
-  } catch (error) {
+  } catch (error) {
     // Error ini terjadi jika penyimpanan data mentah (langkah 1) gagal
-    console.error("Error fatal saat menyimpan data mentah:", error.message);
-    res.status(400).json({
-      success: false,
-      message: "Error saving raw data",
-      error: error.message,
-    });
-  }
+    console.error("Error fatal saat menyimpan data mentah:", error.message);
+    res.status(400).json({
+      success: false,
+      message: "Error saving raw data",
+      error: error.message,
+    });
+  }
 });
 
 app.get("/api/data/raw", async (req, res) => {
@@ -455,7 +469,7 @@ app.get("/api/data/manual", async (req, res) => {
 app.post("/api/recommendation/ai", async (req, res) => {
   try {
     const aiRecommendation = new Recommendation({
-      ...req.body,
+      ...req.blog,
       timestamp: getWIBTime(),
     });
     await aiRecommendation.save();
