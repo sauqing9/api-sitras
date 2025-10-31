@@ -12,7 +12,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Pastikan ini adalah HTTP, bukan HTTPS, untuk paket gratis PythonAnywhere
-const ML_API_URL = "http://sauqing.pythonanywhere.com/predict"; 
+const ML_API_URL = "http://192.168.11.96:5001/predict"; 
 
 // Middleware
 app.use(cors());
