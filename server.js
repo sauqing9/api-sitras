@@ -12,7 +12,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Pastikan ini adalah HTTP, bukan HTTPS, untuk paket gratis PythonAnywhere
-const ML_API_URL = "https://417205e9c085.ngrok-free.app/predict"; 
+const ML_API_URL = "https://sauqing-api-ml-sitras.hf.space/predict"; 
 
 // Middleware
 app.use(cors());
