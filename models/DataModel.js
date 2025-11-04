@@ -111,52 +111,30 @@ const RecommendationSchema = new mongoose.Schema({
     default: Date.now,
   },
   input: {
-    P: {
-      type: Number,
-      required: true,
-    },
-    N: {
-      type: Number,
-      required: true,
-    },
-    K: {
-      type: Number,
-      required: true,
-    },
-    jenis_tanaman: {
-      type: String,
-      required: true,
-      default: "Padi",
-    },
-    // --- REVISI TIPE DATA TARGET PADI ---
-    target_padi: {
-      type: Number, // Diubah dari String ke Number (Int32)
-      required: true,
-      enum: [1, 2, 3, 4], // Validasi: 1 (<6), 2 (6-8), 3 (>8), 4 (N/A)
-      default: 4, // Default N/A
-    },
+    P: { type: Number, required: true },
+    N: { type: Number, required: true },
+    K: { type: Number, required: true },
+    jenis_tanaman: { type: String, required: true, default: "Padi" },
+    target_padi: { type: Number, required: true, enum: [1, 2, 3, 4], default: 4 },
   },
   recommendation: {
-    urea: {
-      type: Number,
-      required: true,
-    },
-    sp36: {
-      type: Number,
-      required: true,
-    },
-    kcl: {
-      type: Number,
-      required: true,
-    },
+    urea: { type: Number, required: true },
+    sp36: { type: Number, required: true },
+    kcl: { type: Number, required: true },
   },
   reasons: {
-    urea: { type: String },
-    sp36: { type: String },
-    kcl: { type: String },
+    info: { type: String },
   },
   tips: {
     type: String,
+  },
+  // --- TAMBAHAN BARU ---
+  // Menyimpan hasil konversi P/K dari ML API
+  conversion_results: {
+    status_p: { type: String },
+    status_k: { type: String },
+    p2o5: { type: Number },
+    k2o: { type: Number },
   },
 });
 
