@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 
+// Skema RawData (Tidak Berubah)
 const RawDataSchema = new mongoose.Schema({
   timestamp: {
     type: Date,
@@ -51,6 +52,7 @@ const RawDataSchema = new mongoose.Schema({
   },
 });
 
+// Skema CalibratedData (Tidak Berubah)
 const CalibratedDataSchema = new mongoose.Schema({
   timestamp: {
     type: Date,
@@ -102,13 +104,14 @@ const CalibratedDataSchema = new mongoose.Schema({
   },
 });
 
+// --- PERUBAHAN PADA RecommendationSchema ---
 const RecommendationSchema = new mongoose.Schema({
   timestamp: {
     type: Date,
     default: Date.now,
   },
   input: {
-    pH: {
+    P: {
       type: Number,
       required: true,
     },
@@ -119,6 +122,18 @@ const RecommendationSchema = new mongoose.Schema({
     K: {
       type: Number,
       required: true,
+    },
+    jenis_tanaman: {
+      type: String,
+      required: true,
+      default: "Padi",
+    },
+    // --- REVISI TIPE DATA TARGET PADI ---
+    target_padi: {
+      type: Number, // Diubah dari String ke Number (Int32)
+      required: true,
+      enum: [1, 2, 3, 4], // Validasi: 1 (<6), 2 (6-8), 3 (>8), 4 (N/A)
+      default: 4, // Default N/A
     },
   },
   recommendation: {
@@ -135,8 +150,17 @@ const RecommendationSchema = new mongoose.Schema({
       required: true,
     },
   },
+  reasons: {
+    urea: { type: String },
+    sp36: { type: String },
+    kcl: { type: String },
+  },
+  tips: {
+    type: String,
+  },
 });
 
+// Skema ManualData (Tidak Berubah)
 const ManualDataSchema = new mongoose.Schema({
   timestamp: {
     type: Date,
@@ -160,10 +184,10 @@ const ManualDataSchema = new mongoose.Schema({
     default: null,
   },
   extractedData: {
-    pH: {
+    P: {
       type: Number,
       min: 0,
-      max: 14,
+      max: 100,
     },
     N: {
       type: Number,
