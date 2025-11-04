@@ -1,18 +1,23 @@
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
-const axios = require("axios"); 
+const axios = require("axios");
 const {
   RawData,
   CalibratedData,
   Recommendation,
+  ManualData,
 } = require("./models/DataModel");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Pastikan ini adalah HTTP, bukan HTTPS, untuk paket gratis PythonAnywhere
-const ML_API_URL = "https://sauqing-api-ml-sitras.hf.space/predict"; 
+// --- URL API ML DIPERBARUI ---
+// URL untuk Model 1 (Kalibrasi)
+const ML_KALIBRASI_API_URL = "https://sauqing-api-ml-sitras.hf.space/predict";
+// URL untuk Model 2 (Rekomendasi K-NN) - Menggunakan host yang sama
+const ML_REKOMENDASI_API_URL = "https://sauqing-api-ml-sitras.hf.space/predict_rekomendasi";
+
 
 // Middleware
 app.use(cors());
@@ -35,14 +40,25 @@ const getWIBTime = () => {
   return wibTime.toISOString();
 };
 
+// --- Helper function untuk konversi target_padi (TETAP) ---
+const convertTargetPadi = (targetString) => {
+  switch (targetString) {
+    case "<6":
+      return 1;
+    case "6-8":
+      return 2;
+    case ">8":
+      return 3;
+    case "N/A":
+    default:
+      return 4;
+  }
+};
+
 // API Routes
 
-// --- RUTE RAW DATA DENGAN DEBUGGING ---
+// Raw Data Endpoints
 app.post("/api/data/raw", async (req, res) => {
-  
-  // Variabel untuk menyimpan pesan status ML
-  let mlStatusMessage = "Raw data saved (ML calibration skipped or not configured)"; 
-
   try {
     // 1. Simpan Data Mentah (RawData)
     const dataWithTimestamp = {
@@ -52,7 +68,7 @@ app.post("/api/data/raw", async (req, res) => {
     const rawData = new RawData(dataWithTimestamp);
     await rawData.save();
 
-    // --- INTEGRASI ML DIMULAI DI SINI ---
+    // --- INTEGRASI ML (MODEL 1: KALIBRASI) ---
     try {
       console.log("Data mentah disimpan. Memulai proses kalibrasi ML...");
       const rawVars = rawData.variables;
@@ -62,63 +78,47 @@ app.post("/api/data/raw", async (req, res) => {
         pH: rawVars.pH,
         N: rawVars.N,
         P: rawVars.P,
-        K: rawVars.K
+        K: rawVars.K,
       };
 
       // 3. Panggil API Python (ML Service) menggunakan axios
-      const mlResponse = await axios.post(ML_API_URL, dataForML, {
-        timeout: 20000 // Timeout 20 detik
+      const mlResponse = await axios.post(ML_KALIBRASI_API_URL, dataForML, {
+        timeout: 5000, // Timeout 5 detik
       });
 
       const calibratedValues = mlResponse.data;
-      
-      // Cek jika API Python mengembalikan error
-      if (calibratedValues.error) {
-          throw new Error(`Python API Error: ${calibratedValues.error}`);
-      }
-      
       console.log("Hasil kalibrasi ML diterima:", calibratedValues);
 
       // 4. Buat dan simpan data terkalibrasi (CalibratedData)
       const calibratedData = new CalibratedData({
-        timestamp: rawData.timestamp, // Gunakan timestamp yang SAMA dengan data mentah
+        timestamp: rawData.timestamp,
         variables: {
-          // Ambil nilai terkalibrasi dari ML
           pH: calibratedValues.pH_calibrated,
           N: calibratedValues.N_calibrated,
           P: calibratedValues.P_calibrated,
           K: calibratedValues.K_calibrated,
-
-          // Ambil nilai sisa (non-NPKpH) dari data mentah
           suhu: rawVars.suhu,
           kelembaban: rawVars.kelembaban,
-          EC: rawVars.EC
-        }
+          EC: rawVars.EC,
+        },
       });
 
       await calibratedData.save();
       console.log("Data terkalibrasi berhasil disimpan ke database.");
-      
-      // Update pesan status jika ML sukses
-      mlStatusMessage = "SUCCESS: Raw data and Calibrated data saved!";
-
     } catch (mlError) {
-      // Jika ML gagal, catat error dan simpan pesannya
-      console.error(`PERINGATAN: Gagal melakukan kalibrasi ML: ${mlError.message}`);
-      // Simpan pesan error untuk dikirim kembali di response
-      mlStatusMessage = `ML_DEBUG_ERROR: ${mlError.message}`;
+      console.error(
+        `PERINGATAN: Gagal melakukan kalibrasi ML: ${mlError.message}`
+      );
     }
     // --- INTEGRASI ML SELESAI ---
 
-    // 5. Kembalikan respon sukses (data mentah) ke ESP32
+    // 5. Kembalikan respon sukses ke ESP32
     res.status(201).json({
       success: true,
-      message: mlStatusMessage, // Kirim pesan status/error
+      message: "Raw data saved successfully (calibration triggered)",
       data: rawData,
     });
-
   } catch (error) {
-    // Error ini terjadi jika penyimpanan data mentah (langkah 1) gagal
     console.error("Error fatal saat menyimpan data mentah:", error.message);
     res.status(400).json({
       success: false,
@@ -312,46 +312,74 @@ app.delete("/api/data/calibrated", async (req, res) => {
 });
 
 // Recommendation Endpoints
+
+// --- PERBAIKAN 1: Endpoint ini sekarang memanggil ML API (Bukan Dummy Logic) ---
+// (Dipanggil oleh Dashboard & tab Rekomendasi Data)
 app.post("/api/recommendation", async (req, res) => {
   try {
-    const { pH, N, K } = req.body;
+    // 1. Ambil SEMUA data dari body
+    const { P, N, K, jenis_tanaman, target_padi } = req.body;
 
-    // Dummy recommendation logic
-    const recommendation = {
-      urea: Math.max(
-        0,
-        Math.min(200, 150 - parseFloat(pH) * 10 + parseFloat(N) * 2)
-      ),
-      sp36: Math.max(
-        0,
-        Math.min(150, 100 - parseFloat(pH) * 5 + parseFloat(K) * 1.5)
-      ),
-      kcl: Math.max(
-        0,
-        Math.min(100, 80 - parseFloat(pH) * 3 + parseFloat(N) * 1.2)
-      ),
+    // 2. Siapkan payload untuk API Python
+    const payloadForML = {
+      P: parseFloat(P),
+      N: parseFloat(N),
+      K: parseFloat(K),
+      jenis_tanaman: jenis_tanaman,
+      target_padi: target_padi, // Kirim string, Python API akan mengonversi
     };
 
+    // 3. Panggil API ML Python (Model 2: Rekomendasi)
+    console.log("Memanggil ML API Rekomendasi dari server Node...");
+    const mlResponse = await axios.post(ML_REKOMENDASI_API_URL, payloadForML, {
+      timeout: 5000 
+    });
+
+    // 4. Ambil rekomendasi dari hasil ML
+    // Asumsi ML API mengembalikan: { success: true, data: { recommendations: {...}, reasons: {...}, tips: "..." } }
+    if (!mlResponse.data || !mlResponse.data.success) {
+      throw new Error("ML API call was not successful");
+    }
+    
+    const recommendation = mlResponse.data.data.recommendations;
+    const reasons = mlResponse.data.data.reasons;
+    const tips = mlResponse.data.data.tips;
+    
+    // 5. Konversi target_padi untuk disimpan di DB
+    const convertedTargetPadi = convertTargetPadi(target_padi);
+
+    // 6. Buat objek data baru sesuai Skema Rekomendasi
     const recommendationData = new Recommendation({
-      input: { pH, N, K },
-      recommendation,
+      input: {
+        P: parseFloat(P),
+        N: parseFloat(N),
+        K: parseFloat(K),
+        jenis_tanaman: jenis_tanaman,
+        target_padi: convertedTargetPadi, // Simpan nilai integer
+      },
+      recommendation, // Ini adalah hasil dari ML
+      reasons,        // Ini dari ML
+      tips,           // Ini dari ML
       timestamp: getWIBTime(),
     });
 
+    // 7. Simpan ke database
     await recommendationData.save();
 
+    // 8. Kembalikan HANYA rekomendasi dan timestamp (sesuai kebutuhan frontend)
     res.json({
       success: true,
-      message: "Recommendation generated successfully",
+      message: "Recommendation generated successfully from ML model",
       data: {
         recommendation,
         timestamp: recommendationData.timestamp,
       },
     });
   } catch (error) {
+    console.error("Error generating ML recommendation:", error.message); // Log error
     res.status(400).json({
       success: false,
-      message: "Error generating recommendation",
+      message: "Error generating ML recommendation",
       error: error.message,
     });
   }
@@ -398,7 +426,7 @@ app.get("/api/latest/calibrated", async (req, res) => {
     res.json({
       success: true,
       data: {
-        pH: latestData.variables.pH,
+        P: latestData.variables.P, // Mengirim P (Fosfor)
         N: latestData.variables.N,
         K: latestData.variables.K,
         timestamp: latestData.timestamp,
@@ -420,7 +448,7 @@ app.post("/api/data/manual", async (req, res) => {
       ...req.body,
       timestamp: getWIBTime(),
     };
-    const manualData = new CalibratedData(dataWithTimestamp);
+    const manualData = new ManualData(dataWithTimestamp);
     await manualData.save();
     res.status(201).json({
       success: true,
@@ -438,21 +466,22 @@ app.post("/api/data/manual", async (req, res) => {
 
 app.get("/api/data/manual", async (req, res) => {
   try {
-    const manualData = await CalibratedData.findOne({
-      variables: { $exists: true },
+    const manualData = await ManualData.findOne({
+      extractedData: { $exists: true },
     }).sort({ timestamp: -1 });
-    if (!manualData) {
+
+    if (!manualData || !manualData.extractedData) {
       return res.status(404).json({
         success: false,
-        message: "No manual data found",
+        message: "No manual data found with extracted values",
       });
     }
     res.json({
       success: true,
       data: {
-        pH: manualData.variables.pH,
-        N: manualData.variables.N,
-        K: manualData.variables.K,
+        P: manualData.extractedData.P,
+        N: manualData.extractedData.N,
+        K: manualData.extractedData.K,
         timestamp: manualData.timestamp,
       },
     });
@@ -465,23 +494,49 @@ app.get("/api/data/manual", async (req, res) => {
   }
 });
 
-// AI Recommendation Endpoint
-app.post("/api/recommendation/ai", async (req, res) => {
+// --- PERBAIKAN 2: Endpoint diganti dari /ai menjadi /ml ---
+// (Dipanggil oleh tab Rekomendasi Input saat menyimpan)
+app.post("/api/recommendation/ml", async (req, res) => {
   try {
-    const aiRecommendation = new Recommendation({
-      ...req.blog,
+    const { input, recommendations, reasons, tips } = req.body;
+
+    // Validasi input dasar
+    if (!input || typeof input.target_padi === "undefined") {
+      return res.status(400).json({
+        success: false,
+        message: "Input data is missing or incomplete.",
+      });
+    }
+
+    // Lakukan konversi
+    const convertedTargetPadi = convertTargetPadi(input.target_padi);
+
+    // Buat objek baru secara eksplisit untuk memastikan skema
+    const mlRecommendation = new Recommendation({
+      input: {
+        P: input.P,
+        N: input.N,
+        K: input.K,
+        jenis_tanaman: input.jenis_tanaman,
+        target_padi: convertedTargetPadi, // Gunakan nilai integer
+      },
+      recommendation: recommendations,
+      reasons: reasons,
+      tips: tips,
       timestamp: getWIBTime(),
     });
-    await aiRecommendation.save();
+
+    await mlRecommendation.save();
     res.status(201).json({
       success: true,
-      message: "AI recommendation saved successfully",
-      data: aiRecommendation,
+      message: "ML recommendation saved successfully", // Pesan diubah
+      data: mlRecommendation, // Variabel diubah
     });
   } catch (error) {
+    console.error("Error saving ML recommendation:", error.message); // Log diubah
     res.status(400).json({
       success: false,
-      message: "Error saving AI recommendation",
+      message: "Error saving ML recommendation", // Pesan diubah
       error: error.message,
     });
   }
