@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 3001;
 
 // --- URL API ML DIPERBARUI ---
 // URL untuk Model 1 (Kalibrasi)
-const ML_KALIBRASI_API_URL = "https://sauqing.pythonanywhere.com/predict";
+const ML_KALIBRASI_API_URL = "https://sauqing-api-ml-sitras.hf.space/predict";
 // URL untuk Model 2 (Rekomendasi K-NN) - Ganti dengan URL Hugging Face/Render Anda
 const ML_REKOMENDASI_API_URL = "https://sauqing-api-ml-sitras.hf.space/predict_rekomendasi";
 
