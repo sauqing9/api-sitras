@@ -7,15 +7,15 @@ const {
   CalibratedData,
   Recommendation,
   ManualData,
-} = require("./models/DataModel");
+} = require("./models/DataModel"); // Pastikan DataModel.js sudah diupdate
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 // --- URL API ML DIPERBARUI ---
 // URL untuk Model 1 (Kalibrasi)
-const ML_KALIBRASI_API_URL = "https://sauqing-api-ml-sitras.hf.space/predict";
-// URL untuk Model 2 (Rekomendasi K-NN)
+const ML_KALIBRASI_API_URL = "https://sauqing.pythonanywhere.com/predict";
+// URL untuk Model 2 (Rekomendasi K-NN) - Ganti dengan URL Hugging Face/Render Anda
 const ML_REKOMENDASI_API_URL = "https://sauqing-api-ml-sitras.hf.space/predict_rekomendasi";
 
 
@@ -40,7 +40,7 @@ const getWIBTime = () => {
   return wibTime.toISOString();
 };
 
-// Helper function untuk konversi target_padi
+// --- Helper function untuk konversi target_padi (TETAP) ---
 const convertTargetPadi = (targetString) => {
   switch (targetString) {
     case "<6":
@@ -64,8 +64,9 @@ app.post("/api/data/raw", async (req, res) => {
     const rawData = new RawData(dataWithTimestamp);
     await rawData.save();
 
+    // --- INTEGRASI ML (MODEL 1: KALIBRASI) ---
     try {
-      console.log("Memulai proses kalibrasi ML...");
+      console.log("Data mentah disimpan. Memulai proses kalibrasi ML...");
       const rawVars = rawData.variables;
       const dataForML = {
         pH: rawVars.pH,
@@ -73,7 +74,7 @@ app.post("/api/data/raw", async (req, res) => {
         P: rawVars.P,
         K: rawVars.K,
       };
-
+      
       const mlResponse = await axios.post(ML_KALIBRASI_API_URL, dataForML, {
         timeout: 5000,
       });
@@ -93,8 +94,9 @@ app.post("/api/data/raw", async (req, res) => {
           EC: rawVars.EC,
         },
       });
+
       await calibratedData.save();
-      console.log("Data terkalibrasi berhasil disimpan.");
+      console.log("Data terkalibrasi berhasil disimpan ke database.");
     } catch (mlError) {
       console.error(
         `PERINGATAN: Gagal melakukan kalibrasi ML: ${mlError.message}`
@@ -120,14 +122,25 @@ app.get("/api/data/raw", async (req, res) => {
   try {
     const rawData = await RawData.findOne().sort({ timestamp: -1 });
     if (!rawData) {
-      return res.status(404).json({ success: false, message: "No raw data found" });
+      return res.status(404).json({
+        success: false,
+        message: "No raw data found",
+      });
     }
-    res.json({ success: true, data: rawData });
+    res.json({
+      success: true,
+      data: rawData,
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Error fetching raw data", error: error.message });
+    res.status(500).json({
+      success: false,
+      message: "Error fetching raw data",
+      error: error.message,
+    });
   }
 });
-// ... (Endpoint GET /raw/history, DELETE /raw/:id, DELETE /raw tetap sama) ...
+
+// ... (Endpoint GET /history, DELETE /:id, DELETE / lainnya tetap sama) ...
 app.get("/api/data/raw/history", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
@@ -181,9 +194,7 @@ app.delete("/api/data/raw", async (req, res) => {
   }
 });
 
-
 // Calibrated Data Endpoints
-// ... (Endpoint POST, GET, GET /history, DELETE /:id, DELETE /calibrated tetap sama) ...
 app.post("/api/data/calibrated", async (req, res) => {
   try {
     const dataWithTimestamp = {
@@ -205,6 +216,7 @@ app.post("/api/data/calibrated", async (req, res) => {
     });
   }
 });
+
 app.get("/api/data/calibrated", async (req, res) => {
   try {
     const calibratedData = await CalibratedData.findOne().sort({
@@ -228,6 +240,7 @@ app.get("/api/data/calibrated", async (req, res) => {
     });
   }
 });
+
 app.get("/api/data/calibrated/history", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
@@ -246,6 +259,7 @@ app.get("/api/data/calibrated/history", async (req, res) => {
     });
   }
 });
+
 app.delete("/api/data/calibrated/:id", async (req, res) => {
   try {
     const calibratedData = await CalibratedData.findByIdAndDelete(
@@ -285,48 +299,40 @@ app.delete("/api/data/calibrated", async (req, res) => {
   }
 });
 
+// Recommendation Endpoints
 
-// --- Recommendation Endpoints ---
-
-// PERBAIKAN 1: ENDPOINT BARU untuk tab "Rekomendasi Input"
-// Endpoint ini HANYA memanggil ML API dan mengembalikan hasilnya (tidak menyimpan)
+// --- PERBAIKAN: ENDPOINT BARU UNTUK TAB INPUT ---
+// Hanya memanggil ML API dan mengembalikan hasilnya, tidak menyimpan ke DB.
+// (Penyimpanan ditangani oleh /api/recommendation/ml)
 app.post("/api/recommendation/input", async (req, res) => {
   try {
-    const { P, N, K, jenis_tanaman, target_padi } = req.body;
+    const payloadForML = req.body; // P, N, K, jenis_tanaman, target_padi
 
-    const payloadForML = {
-      P: parseFloat(P),
-      N: parseFloat(N),
-      K: parseFloat(K),
-      jenis_tanaman: jenis_tanaman,
-      target_padi: target_padi,
-    };
-
-    console.log("Memanggil ML API (Input) dengan payload:", payloadForML);
+    console.log("Menerima request /input, memanggil ML API Rekomendasi...");
     const mlResponse = await axios.post(ML_REKOMENDASI_API_URL, payloadForML, {
-      timeout: 5000,
+      timeout: 5000 
     });
 
     if (!mlResponse.data || !mlResponse.data.success) {
-      throw new Error("ML API (Input) call was not successful");
+      throw new Error("ML API call was not successful or returned no data");
     }
-
-    // Langsung kembalikan hasil dari ML API ke frontend
-    res.json(mlResponse.data); // Ini adalah { success: true, data: { recommendations: ..., conversion_results: ... } }
+    
+    // Langsung teruskan respons dari ML API (yang berisi { success: true, data: {...} })
+    res.json(mlResponse.data);
 
   } catch (error) {
     console.error("Error in /recommendation/input:", error.message);
     res.status(400).json({
       success: false,
-      message: "Error generating ML recommendation from input",
+      message: "Error calling ML recommendation engine",
       error: error.message,
     });
   }
 });
 
 
-// PERBAIKAN 2: Endpoint LAMA DIPERBARUI (untuk tab "Rekomendasi Data" & Dashboard)
-// Endpoint ini memanggil ML API, MENYIMPAN ke DB, dan mengembalikan hasil
+// --- PERBAIKAN: ENDPOINT INI MEMANGGIL ML API & MENYIMPAN ---
+// (Dipanggil oleh Dashboard & tab Rekomendasi Data)
 app.post("/api/recommendation", async (req, res) => {
   try {
     const { P, N, K, jenis_tanaman, target_padi } = req.body;
@@ -339,16 +345,16 @@ app.post("/api/recommendation", async (req, res) => {
       target_padi: target_padi,
     };
 
-    console.log("Memanggil ML API (Data) dengan payload:", payloadForML);
+    console.log("Menerima request /recommendation, memanggil ML API...");
     const mlResponse = await axios.post(ML_REKOMENDASI_API_URL, payloadForML, {
       timeout: 5000 
     });
 
     if (!mlResponse.data || !mlResponse.data.success) {
-      throw new Error("ML API (Data) call was not successful");
+      throw new Error("ML API call was not successful");
     }
     
-    // Ambil semua data dari ML API
+    // Ambil data dari ML API
     const { recommendations, reasons, tips, conversion_results } = mlResponse.data.data;
     
     const convertedTargetPadi = convertTargetPadi(target_padi);
@@ -364,7 +370,7 @@ app.post("/api/recommendation", async (req, res) => {
       recommendation: recommendations,
       reasons,
       tips,
-      conversion_results, // Simpan data konversi baru
+      conversion_results, // <-- SIMPAN HASIL KONVERSI
       timestamp: getWIBTime(),
     });
 
@@ -376,12 +382,12 @@ app.post("/api/recommendation", async (req, res) => {
       message: "Recommendation generated and saved successfully",
       data: {
         recommendation: recommendations,
-        conversion_results: conversion_results, // Kirim data konversi ke frontend
         timestamp: recommendationData.timestamp,
+        conversion_results: conversion_results // <-- KIRIM HASIL KONVERSI
       },
     });
   } catch (error) {
-    console.error("Error in /recommendation:", error.message);
+    console.error("Error generating ML recommendation:", error.message);
     res.status(400).json({
       success: false,
       message: "Error generating ML recommendation",
@@ -418,7 +424,7 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// Get latest calibrated data
+// Get latest calibrated data for auto-populate
 app.get("/api/latest/calibrated", async (req, res) => {
   try {
     const latestData = await CalibratedData.findOne().sort({ timestamp: -1 });
@@ -449,7 +455,10 @@ app.get("/api/latest/calibrated", async (req, res) => {
 // Manual Data Endpoints
 app.post("/api/data/manual", async (req, res) => {
   try {
-    const dataWithTimestamp = { ...req.body, timestamp: getWIBTime() };
+    const dataWithTimestamp = {
+      ...req.body,
+      timestamp: getWIBTime(),
+    };
     const manualData = new ManualData(dataWithTimestamp);
     await manualData.save();
     res.status(201).json({
@@ -488,7 +497,7 @@ app.get("/api/data/manual", async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ // Perbaikan typo 5SO -> 500
+    res.status(500).json({
       success: false,
       message: "Error fetching manual data",
       error: error.message,
@@ -496,11 +505,10 @@ app.get("/api/data/manual", async (req, res) => {
   }
 });
 
-// PERBAIKAN 3: Endpoint untuk MENYIMPAN hasil dari tab "Rekomendasi Input"
-// (Nama /ai diganti /ml)
+// --- PERBAIKAN: Endpoint /ml UNTUK MENYIMPAN DATA DARI TAB INPUT ---
 app.post("/api/recommendation/ml", async (req, res) => {
   try {
-    // Menerima data lengkap (termasuk conversion_results) dari frontend
+    // Data ini dikirim dari 'getMlRecommendation' di frontend
     const { input, recommendations, reasons, tips, conversion_results } = req.body;
 
     if (!input || typeof input.target_padi === "undefined") {
@@ -523,7 +531,7 @@ app.post("/api/recommendation/ml", async (req, res) => {
       recommendation: recommendations,
       reasons: reasons,
       tips: tips,
-      conversion_results: conversion_results, // Menyimpan data konversi
+      conversion_results: conversion_results, // <-- SIMPAN HASIL KONVERSI
       timestamp: getWIBTime(),
     });
 
