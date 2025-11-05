@@ -7,17 +7,14 @@ const {
   CalibratedData,
   Recommendation,
   ManualData,
-} = require("./models/DataModel"); // Pastikan DataModel.js sudah diupdate
+} = require("./models/DataModel"); // Pastikan ini adalah file yg sudah di-update
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 // --- URL API ML DIPERBARUI ---
-// URL untuk Model 1 (Kalibrasi)
 const ML_KALIBRASI_API_URL = "https://sauqing-api-ml-sitras.hf.space/predict";
-// URL untuk Model 2 (Rekomendasi K-NN) - Ganti dengan URL Hugging Face/Render Anda
 const ML_REKOMENDASI_API_URL = "https://sauqing-api-ml-sitras.hf.space/predict_rekomendasi";
-
 
 // Middleware
 app.use(cors());
@@ -33,12 +30,8 @@ mongoose
   })
   .catch((err) => console.log("MongoDB connection error:", err));
 
-// Helper function to get WIB time
-const getWIBTime = () => {
-  const now = new Date();
-  const wibTime = new Date(now.getTime() + 7 * 60 * 60 * 1000);
-  return wibTime.toISOString();
-};
+// --- FUNGSI getWIBTime() TELAH DIHAPUS ---
+// (Ini adalah sumber masalah dan sudah tidak diperlukan)
 
 // --- Helper function untuk konversi target_padi (TETAP) ---
 const convertTargetPadi = (targetString) => {
@@ -60,8 +53,11 @@ const convertTargetPadi = (targetString) => {
 // Raw Data Endpoints
 app.post("/api/data/raw", async (req, res) => {
   try {
-    const dataWithTimestamp = { ...req.body, timestamp: getWIBTime() };
-    const rawData = new RawData(dataWithTimestamp);
+    // PERUBAHAN: Tidak ada lagi dataWithTimestamp atau getWIBTime()
+    // Kita langsung membuat data dari req.body
+    const rawData = new RawData(req.body);
+    
+    // Mongoose akan OTOMATIS menambahkan field 'timestamp' (UTC) saat .save()
     await rawData.save();
 
     // --- INTEGRASI ML (MODEL 1: KALIBRASI) ---
@@ -83,7 +79,11 @@ app.post("/api/data/raw", async (req, res) => {
       console.log("Hasil kalibrasi ML diterima:", calibratedValues);
 
       const calibratedData = new CalibratedData({
-        timestamp: rawData.timestamp,
+        // PERUBAHAN: Kita set timestamp-nya agar SAMA PERSIS
+        // dengan timestamp rawData yang baru saja dibuat Mongoose.
+        // Ini akan "menimpa" timestamp otomatis CalibratedData,
+        // yang mana memang kita inginkan agar keduanya sinkron.
+        timestamp: rawData.timestamp, 
         variables: {
           pH: calibratedValues.pH_calibrated,
           N: calibratedValues.N_calibrated,
@@ -197,11 +197,10 @@ app.delete("/api/data/raw", async (req, res) => {
 // Calibrated Data Endpoints
 app.post("/api/data/calibrated", async (req, res) => {
   try {
-    const dataWithTimestamp = {
-      ...req.body,
-      timestamp: getWIBTime(),
-    };
-    const calibratedData = new CalibratedData(dataWithTimestamp);
+    // PERUBAHAN: Tidak ada lagi dataWithTimestamp atau getWIBTime()
+    const calibratedData = new CalibratedData(req.body);
+    
+    // Mongoose akan OTOMATIS menambahkan field 'timestamp' (UTC) saat .save()
     await calibratedData.save();
     res.status(201).json({
       success: true,
@@ -302,8 +301,7 @@ app.delete("/api/data/calibrated", async (req, res) => {
 // Recommendation Endpoints
 
 // --- PERBAIKAN: ENDPOINT BARU UNTUK TAB INPUT ---
-// Hanya memanggil ML API dan mengembalikan hasilnya, tidak menyimpan ke DB.
-// (Penyimpanan ditangani oleh /api/recommendation/ml)
+// (Tidak ada perubahan di sini, karena tidak menyimpan ke DB)
 app.post("/api/recommendation/input", async (req, res) => {
   try {
     const payloadForML = req.body; // P, N, K, jenis_tanaman, target_padi
@@ -317,7 +315,6 @@ app.post("/api/recommendation/input", async (req, res) => {
       throw new Error("ML API call was not successful or returned no data");
     }
     
-    // Langsung teruskan respons dari ML API (yang berisi { success: true, data: {...} })
     res.json(mlResponse.data);
 
   } catch (error) {
@@ -332,7 +329,6 @@ app.post("/api/recommendation/input", async (req, res) => {
 
 
 // --- PERBAIKAN: ENDPOINT INI MEMANGGIL ML API & MENYIMPAN ---
-// (Dipanggil oleh Dashboard & tab Rekomendasi Data)
 app.post("/api/recommendation", async (req, res) => {
   try {
     const { P, N, K, jenis_tanaman, target_padi } = req.body;
@@ -354,7 +350,6 @@ app.post("/api/recommendation", async (req, res) => {
       throw new Error("ML API call was not successful");
     }
     
-    // Ambil data dari ML API
     const { recommendations, reasons, tips, conversion_results } = mlResponse.data.data;
     
     const convertedTargetPadi = convertTargetPadi(target_padi);
@@ -370,20 +365,20 @@ app.post("/api/recommendation", async (req, res) => {
       recommendation: recommendations,
       reasons,
       tips,
-      conversion_results, // <-- SIMPAN HASIL KONVERSI
-      timestamp: getWIBTime(),
+      conversion_results,
+      // PERUBAHAN: Hapus 'timestamp: getWIBTime()'
+      // Mongoose akan mengisinya secara otomatis
     });
 
     await recommendationData.save();
 
-    // Kembalikan data yang dibutuhkan frontend
     res.json({
       success: true,
       message: "Recommendation generated and saved successfully",
       data: {
         recommendation: recommendations,
         timestamp: recommendationData.timestamp,
-        conversion_results: conversion_results // <-- KIRIM HASIL KONVERSI
+        conversion_results: conversion_results
       },
     });
   } catch (error) {
@@ -420,7 +415,7 @@ app.get("/api/health", (req, res) => {
   res.json({
     success: true,
     message: "API is running",
-    timestamp: new Date().toISOString(),
+    timestamp: new Date().toISOString(), // Ini boleh, hanya untuk status check
   });
 });
 
@@ -455,11 +450,10 @@ app.get("/api/latest/calibrated", async (req, res) => {
 // Manual Data Endpoints
 app.post("/api/data/manual", async (req, res) => {
   try {
-    const dataWithTimestamp = {
-      ...req.body,
-      timestamp: getWIBTime(),
-    };
-    const manualData = new ManualData(dataWithTimestamp);
+    // PERUBAHAN: Tidak ada lagi dataWithTimestamp atau getWIBTime()
+    const manualData = new ManualData(req.body);
+    
+    // Mongoose akan OTOMATIS menambahkan field 'timestamp' (UTC) saat .save()
     await manualData.save();
     res.status(201).json({
       success: true,
@@ -508,7 +502,6 @@ app.get("/api/data/manual", async (req, res) => {
 // --- PERBAIKAN: Endpoint /ml UNTUK MENYIMPAN DATA DARI TAB INPUT ---
 app.post("/api/recommendation/ml", async (req, res) => {
   try {
-    // Data ini dikirim dari 'getMlRecommendation' di frontend
     const { input, recommendations, reasons, tips, conversion_results } = req.body;
 
     if (!input || typeof input.target_padi === "undefined") {
@@ -531,8 +524,9 @@ app.post("/api/recommendation/ml", async (req, res) => {
       recommendation: recommendations,
       reasons: reasons,
       tips: tips,
-      conversion_results: conversion_results, // <-- SIMPAN HASIL KONVERSI
-      timestamp: getWIBTime(),
+      conversion_results: conversion_results,
+      // PERUBAHAN: Hapus 'timestamp: getWIBTime()'
+      // Mongoose akan mengisinya secara otomatis
     });
 
     await mlRecommendation.save();
@@ -554,4 +548,3 @@ app.post("/api/recommendation/ml", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
