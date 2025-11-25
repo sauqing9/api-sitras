@@ -148,50 +148,40 @@ const RecommendationSchema = new mongoose.Schema(
 // --- Skema ManualData ---
 const ManualDataSchema = new mongoose.Schema(
   {
-    // Field 'timestamp' manual DIHAPUS dari sini
-    type: {
+    // Label Tanah (Contoh: "Tanah Desa Sukaraja")
+    label: { 
+      type: String, 
+      required: true 
+    },
+    // Titik Koordinat (Opsional)
+    coordinates: { 
+      type: String, 
+      default: "" 
+    },
+    // Referensi ID data kalibrasi asal (Opsional, untuk tracking)
+    sourceCalibratedId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'CalibratedData',
+      default: null
+    },
+    // Variabel Data (Disamakan dengan CalibratedData)
+    variables: {
+      pH: { type: Number, default: 0 },
+      suhu: { type: Number, default: 0 },
+      kelembaban: { type: Number, default: 0 },
+      N: { type: Number, default: 0 },
+      P: { type: Number, default: 0 },
+      K: { type: Number, default: 0 },
+      EC: { type: Number, default: 0 },
+    },
+    // Tipe input (Manual text entry atau dari Calibrated Data)
+    inputType: {
       type: String,
-      enum: ["text", "file"],
-      required: true,
-    },
-    content: {
-      type: String,
-      required: true,
-    },
-    fileName: {
-      type: String,
-      default: null,
-    },
-    fileType: {
-      type: String,
-      default: null,
-    },
-    extractedData: {
-      P: {
-        type: Number,
-        min: 0,
-        max: 100,
-      },
-      N: {
-        type: Number,
-        min: 0,
-        max: 100,
-      },
-      K: {
-        type: Number,
-        min: 0,
-        max: 100,
-      },
-    },
-    aiAnalysis: {
-      type: String,
-      default: null,
-    },
+      enum: ["manual_input", "from_calibrated"],
+      default: "from_calibrated"
+    }
   },
-  {
-    // TAMBAHKAN INI: Mongoose akan otomatis membuat field 'timestamp' saat data dibuat
-    timestamps: { createdAt: "timestamp", updatedAt: false },
-  }
+  { timestamps: { createdAt: "timestamp", updatedAt: false } }
 );
 
 module.exports = {
